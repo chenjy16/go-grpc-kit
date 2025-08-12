@@ -1,23 +1,36 @@
 # Go gRPC Kit
 
-一个类似 Spring Boot 的 Go gRPC 框架，提供开箱即用的 gRPC 服务开发体验。
+A Spring Boot-like gRPC framework for Go that provides out-of-the-box gRPC service development experience.
 
-## 核心功能
+## Table of Contents
 
-- 🔧 **自动配置** - 基于配置文件或环境变量自动加载配置
-- 🚀 **gRPC Server 自动注册与启动** - 自动启动 gRPC 服务端，支持多服务注册
-- 🔍 **服务发现** - 支持 etcd/consul 的自动注册、注销和客户端解析
-- 🔒 **TLS/mTLS 支持** - 内置安全通信能力
-- 🔗 **拦截器链** - 日志、指标收集、错误恢复等中间件链式处理
-- 📊 **Health/Metrics/管理端口** - 健康检查、Prometheus 指标暴露、管理页面
-- 🏭 **客户端工厂** - 按服务名 dial，支持负载均衡、超时、重试策略
-- 🎯 **优雅启动与关闭** - 支持平滑上线和下线
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [Core Components](#core-components)
+- [Examples](#examples)
+- [Project Structure](#project-structure)
+- [Best Practices](#best-practices)
+- [License](#license)
 
-## 快速开始
+## Features
 
-### 方式一：使用 Starter 框架（推荐）
+- 🔧 **Auto Configuration** - Automatic configuration loading from files or environment variables
+- 🚀 **gRPC Server Auto Registration & Startup** - Automatic gRPC server startup with multi-service registration
+- 🔍 **Service Discovery** - Support for etcd/consul auto registration, deregistration, and client resolution
+- 🔒 **TLS/mTLS Support** - Built-in secure communication capabilities
+- 🔗 **Interceptor Chain** - Middleware chain processing for logging, metrics collection, error recovery
+- 📊 **Health/Metrics/Management Endpoints** - Health checks, Prometheus metrics exposure, management pages
+- 🏭 **Client Factory** - Service name-based dialing with load balancing, timeout, and retry policies
+- 🎯 **Graceful Startup & Shutdown** - Support for smooth online and offline operations
+- 🌐 **DNS Resolver Support** - Built-in DNS resolver for direct connections and Nginx proxies
+- ⚙️ **Comprehensive Configuration** - Extensive gRPC server and client configuration options
 
-最简单的启动方式，零配置开箱即用：
+## Quick Start
+
+### Method 1: Using Starter Framework (Recommended)
+
+The simplest way to start, zero-configuration out-of-the-box:
 
 ```go
 package main
@@ -31,7 +44,7 @@ import (
     "google.golang.org/grpc"
 )
 
-// 实现你的 gRPC 服务
+// Implement your gRPC service
 type GreeterService struct {
     proto.UnimplementedGreeterServer
 }
@@ -43,7 +56,7 @@ func (s *GreeterService) SayHello(ctx context.Context, req *proto.HelloRequest) 
 }
 
 func main() {
-    // 一行代码启动完整的 gRPC 服务
+    // Start a complete gRPC service with one line of code
     err := starter.RunSimple(func(s grpc.ServiceRegistrar) {
         proto.RegisterGreeterServer(s, &GreeterService{})
     })
@@ -54,7 +67,7 @@ func main() {
 }
 ```
 
-### 方式二：使用传统 Application 框架
+### Method 2: Using Traditional Application Framework
 
 ```go
 package main
@@ -74,7 +87,7 @@ func (s *GreeterService) SayHello(ctx context.Context, req *proto.HelloRequest) 
     return &proto.HelloResponse{Message: "Hello " + req.Name}, nil
 }
 
-// 实现 ServiceRegistrar 接口
+// Implement ServiceRegistrar interface
 func (s *GreeterService) RegisterService(server grpc.ServiceRegistrar) {
     proto.RegisterGreeterServer(server, s)
 }
@@ -82,42 +95,116 @@ func (s *GreeterService) RegisterService(server grpc.ServiceRegistrar) {
 func main() {
     application := app.New()
     
-    // 注册服务
+    // Register service
     application.RegisterService(&GreeterService{})
     
-    // 启动应用
+    // Start application
     application.Run()
 }
 ```
 
-## 配置文件
+### Method 3: Chain Configuration
 
-创建 `config/application.yml` 配置文件：
+```go
+package main
+
+import (
+    "github.com/go-grpc-kit/go-grpc-kit/pkg/starter"
+    "google.golang.org/grpc"
+)
+
+func main() {
+    err := starter.NewStarter(
+        starter.WithGrpcPort(9090),        // gRPC port
+        starter.WithMetricsPort(8081),     // Metrics port
+        starter.WithAppMetrics(true),      // Enable metrics
+        starter.WithAppDiscovery(false),   // Disable service discovery
+    ).
+        AddService(starter.NewSimpleService(func(s grpc.ServiceRegistrar) {
+            RegisterMyServiceServer(s, &MyService{})
+        })).
+        Run()
+        
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+## Configuration
+
+Create a `config/application.yml` configuration file:
 
 ```yaml
 server:
   host: "0.0.0.0"
-  port: 8080          # HTTP 端口
-  grpc_port: 9090     # gRPC 端口
+  port: 8080          # HTTP port
+  grpc_port: 9090     # gRPC port
 
 grpc:
   server:
-    max_recv_msg_size: 4194304  # 4MB
-    max_send_msg_size: 4194304  # 4MB
+    # Message size limits
+    max_recv_msg_size: 8388608  # 8MB
+    max_send_msg_size: 8388608  # 8MB
+    
+    # Connection configuration
+    max_concurrent_streams: 200
+    connection_timeout: 180     # 3 minutes
+    keepalive_time: 60         # 1 minute
+    keepalive_timeout: 10      # 10 seconds
+    keepalive_min_time: 10     # 10 seconds
+    
+    # Feature switches
+    enable_reflection: true
+    enable_compression: true
+    compression_level: "gzip"
+    
+    # Interceptor configuration
+    enable_logging: true
+    enable_metrics: true
+    enable_recovery: true
+    enable_tracing: false
+
   client:
-    timeout: 30
-    max_retries: 3
+    # Basic configuration
+    timeout: 60                # 1 minute
     load_balancing: "round_robin"
+    max_recv_msg_size: 8388608
+    max_send_msg_size: 8388608
+    
+    # Keepalive configuration
+    keepalive_time: 30
+    keepalive_timeout: 5
+    permit_without_stream: true
+    
+    # Retry policy
+    retry_policy:
+      max_attempts: 5
+      initial_backoff: "1s"
+      max_backoff: "60s"
+      backoff_multiplier: 2.0
+      retryable_status_codes:
+        - "UNAVAILABLE"
+        - "DEADLINE_EXCEEDED"
+        - "RESOURCE_EXHAUSTED"
+    
+    # Compression configuration
+    compression: "gzip"
+    
+    # Interceptor configuration
+    enable_logging: true
+    enable_metrics: true
+    enable_tracing: false
 
 discovery:
-  type: "etcd"        # 支持 etcd 或 consul
+  type: "etcd"        # Support etcd or consul
   endpoints:
     - "localhost:2379"
   namespace: "/grpc-kit"
 
 logging:
   level: "info"       # debug, info, warn, error
-  format: "json"      # json 或 console
+  format: "json"      # json or console
 
 tls:
   enabled: false
@@ -131,19 +218,19 @@ metrics:
   path: "/metrics"
 ```
 
-## 核心功能详解
+## Core Components
 
-### 1. Starter 框架
+### 1. Starter Framework
 
-提供类似 Spring Boot 的零配置启动体验：
+Provides Spring Boot-like zero-configuration startup experience:
 
 ```go
-// 最简单的启动方式
+// Simplest startup method
 starter.RunSimple(func(s grpc.ServiceRegistrar) {
     proto.RegisterGreeterServer(s, &GreeterService{})
 })
 
-// 带配置的启动方式
+// Startup with configuration
 starter.Run(
     starter.WithGrpcPort(9090),
     starter.WithMetricsPort(8081),
@@ -154,18 +241,41 @@ starter.Run(
 )
 ```
 
-### 2. 服务发现
+#### Features
 
-支持 etcd 和 consul 的自动服务注册与发现：
+- 🚀 **Out-of-the-box**: Zero-configuration gRPC service startup
+- 🔧 **Modular Design**: Independent functional modules, selectively enable/disable
+- ⚙️ **Simplified Configuration**: Chain calls, Spring Boot-like configuration experience
+- 📊 **Built-in Monitoring**: Auto-integrated Prometheus metrics and health checks
+- 🔍 **Service Discovery**: Optional etcd service registration and discovery
+- 📝 **Structured Logging**: High-performance logging based on zap
+- 🛡️ **Graceful Shutdown**: Support for signal handling and graceful shutdown
+
+#### Configuration Options
+
+**Basic Configuration:**
+- `WithGrpcPort(port int)`: Set gRPC service port (default: 9090)
+- `WithMetricsPort(port int)`: Set metrics service port (default: 8081)
+- `WithConfig(cfg *config.Config)`: Use custom configuration
+- `WithAppLogger(logger *zap.Logger)`: Use custom logger
+
+**Feature Switches:**
+- `WithAppMetrics(enabled bool)`: Enable/disable Prometheus metrics (default: true)
+- `WithAppDiscovery(enabled bool)`: Enable/disable service discovery (default: false)
+- `WithEtcdEndpoints(endpoints []string)`: Set etcd endpoints
+
+### 2. Service Discovery
+
+Support for etcd and consul automatic service registration and discovery:
 
 ```go
-// 创建 etcd 注册中心
+// Create etcd registry
 registry, err := discovery.NewEtcdRegistry([]string{"localhost:2379"})
 if err != nil {
     log.Fatal(err)
 }
 
-// 注册服务
+// Register service
 serviceInfo := &discovery.ServiceInfo{
     Name:    "greeter-service",
     Version: "v1.0.0",
@@ -180,54 +290,157 @@ if err != nil {
     log.Fatal(err)
 }
 
-// 发现服务
+// Discover services
 services, err := registry.Discover(context.Background(), "greeter-service")
 if err != nil {
     log.Fatal(err)
 }
 ```
 
-### 3. 客户端工厂
+### 3. Client Factory
 
-按服务名创建 gRPC 客户端连接：
+Create gRPC client connections by service name:
 
 ```go
-// 创建客户端工厂
+// Create client factory
 factory := client.NewFactory(
     client.WithDiscovery(registry),
     client.WithTimeout(30*time.Second),
     client.WithMaxRetries(3),
 )
 
-// 获取服务客户端
+// Get service client
 conn, err := factory.GetClient("greeter-service")
 if err != nil {
     log.Fatal(err)
 }
 defer conn.Close()
 
-// 使用客户端
+// Use client
 greeterClient := proto.NewGreeterClient(conn)
 response, err := greeterClient.SayHello(context.Background(), &proto.HelloRequest{
     Name: "World",
 })
 ```
 
-### 4. 拦截器
+### 4. DNS Resolver Support
 
-内置多种拦截器，支持链式调用：
+When service discovery is not configured, the framework automatically uses gRPC's built-in DNS resolver:
+
+#### Configuration for DNS Resolution
+
+```yaml
+# Note: No discovery section configured, client will use gRPC built-in DNS resolver
+grpc:
+  client:
+    timeout: 30
+    load_balancing: "round_robin"
+    # ... other client configurations
+```
+
+#### Supported Address Formats
+
+- **Domain names**: `example.com:9090`
+- **IP addresses**: `192.168.1.100:9090`
+- **Local addresses**: `localhost:9090` or `127.0.0.1:9090`
+- **IPv6 addresses**: `[::1]:9090`
+
+#### Usage Example
 
 ```go
-// 指标收集拦截器
+// Create application
+app := app.New(app.WithConfig(cfg))
+
+// Get client connection (using DNS resolution)
+conn, err := app.GetClient("example.com:9090")
+if err != nil {
+    log.Fatal(err)
+}
+defer conn.Close()
+
+// Use connection to create gRPC client
+client := your_proto.NewYourServiceClient(conn)
+```
+
+### 5. Nginx Integration
+
+Configure gRPC clients to connect to Nginx addresses:
+
+#### Configuration
+
+```yaml
+# Note: No discovery section configured to enable DNS resolver
+grpc:
+  client:
+    timeout: 30
+    load_balancing: "round_robin"
+    # ... other client configurations
+```
+
+#### Supported Nginx Address Formats
+
+- **Domain addresses**: `nginx.example.com:443`
+- **IP addresses**: `192.168.1.100:80`
+- **Local addresses**: `localhost:8080`
+- **Internal load balancers**: `nginx-lb.internal:9090`
+
+#### Usage Example
+
+```go
+// Connect to Nginx address
+client, err := application.GetClient("nginx.example.com:443")
+if err != nil {
+    log.Printf("Connection failed: %v", err)
+    return
+}
+
+// Use client to call gRPC service
+// userClient := pb.NewUserServiceClient(client)
+// response, err := userClient.GetUser(ctx, &pb.GetUserRequest{...})
+```
+
+#### Nginx Configuration Example
+
+```nginx
+upstream grpc_backend {
+    server backend1.example.com:9090;
+    server backend2.example.com:9090;
+    server backend3.example.com:9090;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name nginx.example.com;
+    
+    # SSL configuration
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+    
+    location / {
+        grpc_pass grpc://grpc_backend;
+        grpc_set_header Host $host;
+        grpc_set_header X-Real-IP $remote_addr;
+        grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        grpc_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+### 6. Interceptors
+
+Built-in multiple interceptors with chain call support:
+
+```go
+// Metrics collection interceptor
 metricsInterceptor := interceptor.NewMetricsUnaryInterceptor()
 
-// 日志拦截器
+// Logging interceptor
 loggingInterceptor := interceptor.NewLoggingUnaryInterceptor()
 
-// 恢复拦截器
+// Recovery interceptor
 recoveryInterceptor := interceptor.NewRecoveryUnaryInterceptor()
 
-// 创建服务器时添加拦截器
+// Add interceptors when creating server
 server := grpc.NewServer(
     grpc.ChainUnaryInterceptor(
         recoveryInterceptor,
@@ -237,59 +450,175 @@ server := grpc.NewServer(
 )
 ```
 
-### 5. 健康检查和指标
+### 7. Health Checks and Metrics
 
-自动提供健康检查和 Prometheus 指标：
+Automatically provide health checks and Prometheus metrics:
 
 ```bash
-# 健康检查
+# Health check
 curl http://localhost:8080/health
 
-# Prometheus 指标
+# Prometheus metrics
 curl http://localhost:8081/metrics
 ```
 
-### 6. TLS 支持
+#### Built-in Metrics
 
-支持 TLS 和 mTLS 安全通信：
+- `grpc_requests_total`: Total gRPC requests
+- `grpc_request_duration_seconds`: gRPC request duration
+- `grpc_active_requests`: Current active requests
+
+### 8. TLS Support
+
+Support for TLS and mTLS secure communication:
 
 ```yaml
 tls:
   enabled: true
   cert_file: "server.crt"
   key_file: "server.key"
-  ca_file: "ca.crt"  # mTLS 需要
+  ca_file: "ca.crt"  # Required for mTLS
 ```
 
-## 项目结构
+## Examples
+
+The framework provides comprehensive examples in the `examples/` directory:
+
+### 1. DNS Client Demo (`examples/dns_client_demo/`)
+
+Demonstrates how to use the built-in DNS resolver functionality:
+
+```bash
+cd examples/dns_client_demo
+go run main.go
+```
+
+**Features:**
+- DNS resolver support when no service discovery is configured
+- Flexible target addresses supporting domains, IPs, and ports
+- Configuration-driven client behavior
+- Automatic connection lifecycle management
+
+### 2. Nginx Client Demo (`examples/nginx_client_demo/`)
+
+Shows how to configure gRPC clients to connect to Nginx addresses:
+
+```bash
+cd examples/nginx_client_demo
+go run main.go
+```
+
+**Features:**
+- Direct connection to Nginx addresses
+- Support for various Nginx address formats
+- Comprehensive client configuration options
+- Examples for connecting to upstream services through Nginx
+
+### 3. gRPC Configuration Demo (`examples/grpc_config_demo/`)
+
+Demonstrates enhanced gRPC configuration capabilities:
+
+```bash
+cd examples/grpc_config_demo
+go run main.go
+```
+
+**Features:**
+- Comprehensive server and client configuration options
+- Message size limits, connection management, keepalive parameters
+- Retry policies, compression support, interceptor configuration
+- Real-time configuration display
+
+## Project Structure
 
 ```
 go-grpc-kit/
-├── cmd/                    # 命令行工具和示例
-├── config/                 # 配置文件
-├── internal/              # 内部包
-├── pkg/                   # 公共包
-│   ├── app/              # 应用框架
-│   ├── config/           # 配置管理
-│   ├── discovery/        # 服务发现（etcd/consul）
-│   ├── interceptor/      # 拦截器（指标/日志/恢复）
-│   ├── client/           # 客户端工厂
-│   ├── server/           # gRPC 服务端
-│   └── starter/          # Starter 框架
-└── examples/             # 示例代码
-    ├── simple/           # 简单示例
-    ├── discovery/        # 服务发现示例
-    └── client/           # 客户端示例
+├── cmd/                    # Command-line tools and examples
+├── config/                 # Configuration files
+├── internal/              # Internal packages
+├── pkg/                   # Public packages
+│   ├── app/              # Application framework
+│   ├── config/           # Configuration management
+│   ├── discovery/        # Service discovery (etcd/consul)
+│   ├── interceptor/      # Interceptors (metrics/logging/recovery)
+│   ├── client/           # Client factory
+│   ├── server/           # gRPC server
+│   └── starter/          # Starter framework
+└── examples/             # Example code
+    ├── simple/           # Simple examples
+    ├── discovery/        # Service discovery examples
+    ├── client/           # Client examples
+    ├── dns_client_demo/  # DNS client demonstration
+    ├── nginx_client_demo/ # Nginx client demonstration
+    └── grpc_config_demo/ # gRPC configuration demonstration
 ```
 
-## 示例
+## Best Practices
 
-查看 `examples/` 目录获取更多使用示例：
+### 1. Development Environment
 
-- `examples/simple/` - 基础 gRPC 服务示例
-- `examples/discovery/` - 服务发现示例
-- `examples/client/` - 客户端使用示例
+- Use DNS resolver for rapid development and testing
+- Leverage the starter framework for quick prototyping
+- Utilize comprehensive configuration options for fine-tuning
 
-## 许可证
+### 2. Production Environment
+
+- Choose appropriate solutions based on architecture complexity
+- Use service discovery for complex microservice architectures
+- Implement proper TLS/mTLS for secure communication
+- Configure appropriate retry policies and timeouts
+
+### 3. Configuration Management
+
+- Use configuration files to flexibly switch resolution methods
+- Implement environment-specific configurations
+- Monitor and adjust performance-related settings
+
+### 4. Monitoring and Observability
+
+- Enable built-in metrics and health checks
+- Implement structured logging for better debugging
+- Use interceptors for comprehensive request tracking
+
+### 5. Comparison: DNS Resolver vs Service Discovery
+
+| Feature | DNS Resolver | Service Discovery |
+|---------|--------------|-------------------|
+| Configuration Complexity | Simple | Complex |
+| Infrastructure Dependencies | DNS servers | etcd/Consul etc. |
+| Dynamic Service Discovery | Limited | Full support |
+| Load Balancing | DNS round-robin | Multiple strategies |
+| Health Checks | None | Supported |
+| Use Cases | Simple deployments | Microservice architectures |
+
+### 6. Framework Comparison: Traditional vs Starter
+
+#### Traditional Approach
+```go
+// Manual server creation, middleware configuration, monitoring startup, etc.
+server := grpc.NewServer(
+    grpc.UnaryInterceptor(/* various interceptors */),
+)
+RegisterMyServiceServer(server, &MyService{})
+
+lis, _ := net.Listen("tcp", ":9090")
+go server.Serve(lis)
+
+// Manual metrics server startup
+http.Handle("/metrics", promhttp.Handler())
+go http.ListenAndServe(":8081", nil)
+
+// Manual signal handling...
+```
+
+#### Starter Approach
+```go
+// Start complete gRPC service with one line of code
+starter.RunSimple(func(s grpc.ServiceRegistrar) {
+    RegisterMyServiceServer(s, &MyService{})
+})
+```
+
+## License
 
 MIT License
