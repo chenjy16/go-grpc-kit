@@ -8,6 +8,7 @@ require (
 	github.com/hashicorp/consul/api v1.25.1
 	github.com/prometheus/client_golang v1.17.0
 	github.com/spf13/viper v1.17.0
+	github.com/stretchr/testify v1.8.4
 	go.etcd.io/etcd/client/v3 v3.5.10
 	go.uber.org/zap v1.26.0
 	google.golang.org/grpc v1.74.2
@@ -39,6 +40,7 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.1.0 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_model v0.4.1-0.20230718164431-9a2bf3000d16 // indirect
 	github.com/prometheus/common v0.44.0 // indirect
 	github.com/prometheus/procfs v0.11.1 // indirect

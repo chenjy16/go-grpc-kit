@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/go-grpc-kit/go-grpc-kit/pkg/config"
 	"github.com/go-grpc-kit/go-grpc-kit/pkg/interceptor"
@@ -14,6 +15,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 )
 
@@ -86,8 +88,10 @@ func (s *Server) Start() error {
 	// 注册健康检查服务
 	grpc_health_v1.RegisterHealthServer(s.grpcServer, s.healthSrv)
 	
-	// 注册反射服务（开发环境）
-	reflection.Register(s.grpcServer)
+	// 根据配置注册反射服务
+	if s.config.GRPC.Server.EnableReflection {
+		reflection.Register(s.grpcServer)
+	}
 	
 	// 注册业务服务
 	for _, service := range s.services {
@@ -157,23 +161,42 @@ func (s *Server) buildServerOptions() ([]grpc.ServerOption, error) {
 		grpc.MaxSendMsgSize(s.config.GRPC.Server.MaxSendMsgSize),
 	)
 	
-	// 添加拦截器链
-	unaryInterceptors := []grpc.UnaryServerInterceptor{
-		interceptor.LoggingUnaryInterceptor(s.logger),
-		interceptor.RecoveryUnaryInterceptor(s.logger),
-		interceptor.MetricsUnaryInterceptor(),
+	// 设置连接配置
+	if s.config.GRPC.Server.MaxConcurrentStreams > 0 {
+		opts = append(opts, grpc.MaxConcurrentStreams(s.config.GRPC.Server.MaxConcurrentStreams))
 	}
 	
-	streamInterceptors := []grpc.StreamServerInterceptor{
-		interceptor.LoggingStreamInterceptor(s.logger),
-		interceptor.RecoveryStreamInterceptor(s.logger),
-		interceptor.MetricsStreamInterceptor(),
+	// 设置 Keepalive 配置
+	if s.config.GRPC.Server.KeepaliveTime > 0 {
+		keepaliveParams := keepalive.ServerParameters{
+			Time:    time.Duration(s.config.GRPC.Server.KeepaliveTime) * time.Second,
+			Timeout: time.Duration(s.config.GRPC.Server.KeepaliveTimeout) * time.Second,
+		}
+		opts = append(opts, grpc.KeepaliveParams(keepaliveParams))
 	}
 	
-	opts = append(opts,
-		grpc.ChainUnaryInterceptor(unaryInterceptors...),
-		grpc.ChainStreamInterceptor(streamInterceptors...),
-	)
+	if s.config.GRPC.Server.KeepaliveMinTime > 0 {
+		keepalivePolicy := keepalive.EnforcementPolicy{
+			MinTime:             time.Duration(s.config.GRPC.Server.KeepaliveMinTime) * time.Second,
+			PermitWithoutStream: false,
+		}
+		opts = append(opts, grpc.KeepaliveEnforcementPolicy(keepalivePolicy))
+	}
+	
+	// 设置连接超时
+	if s.config.GRPC.Server.ConnectionTimeout > 0 {
+		opts = append(opts, grpc.ConnectionTimeout(time.Duration(s.config.GRPC.Server.ConnectionTimeout)*time.Second))
+	}
+	
+	// 构建拦截器链
+	unaryInterceptors, streamInterceptors := s.buildInterceptors()
+	
+	if len(unaryInterceptors) > 0 {
+		opts = append(opts, grpc.ChainUnaryInterceptor(unaryInterceptors...))
+	}
+	if len(streamInterceptors) > 0 {
+		opts = append(opts, grpc.ChainStreamInterceptor(streamInterceptors...))
+	}
 	
 	// TLS 配置
 	if s.config.TLS.Enabled {
@@ -210,6 +233,36 @@ func (s *Server) buildTLSCredentials() (credentials.TransportCredentials, error)
 	}
 	
 	return credentials.NewTLS(tlsConfig), nil
+}
+
+// buildInterceptors 构建拦截器链
+func (s *Server) buildInterceptors() ([]grpc.UnaryServerInterceptor, []grpc.StreamServerInterceptor) {
+	var unaryInterceptors []grpc.UnaryServerInterceptor
+	var streamInterceptors []grpc.StreamServerInterceptor
+	
+	// 根据配置添加拦截器
+	if s.config.GRPC.Server.EnableLogging {
+		unaryInterceptors = append(unaryInterceptors, interceptor.LoggingUnaryInterceptor(s.logger))
+		streamInterceptors = append(streamInterceptors, interceptor.LoggingStreamInterceptor(s.logger))
+	}
+	
+	if s.config.GRPC.Server.EnableRecovery {
+		unaryInterceptors = append(unaryInterceptors, interceptor.RecoveryUnaryInterceptor(s.logger))
+		streamInterceptors = append(streamInterceptors, interceptor.RecoveryStreamInterceptor(s.logger))
+	}
+	
+	if s.config.GRPC.Server.EnableMetrics {
+		unaryInterceptors = append(unaryInterceptors, interceptor.MetricsUnaryInterceptor())
+		streamInterceptors = append(streamInterceptors, interceptor.MetricsStreamInterceptor())
+	}
+	
+	// TODO: 添加 tracing 拦截器支持
+	// if s.config.GRPC.Server.EnableTracing {
+	//     unaryInterceptors = append(unaryInterceptors, interceptor.TracingUnaryInterceptor())
+	//     streamInterceptors = append(streamInterceptors, interceptor.TracingStreamInterceptor())
+	// }
+	
+	return unaryInterceptors, streamInterceptors
 }
 
 // GetAddress 获取服务器地址

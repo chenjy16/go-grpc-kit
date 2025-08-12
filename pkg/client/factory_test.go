@@ -61,8 +61,10 @@ func TestNewClientFactory(t *testing.T) {
 		GRPC: config.GRPCConfig{
 			Client: config.GRPCClientConfig{
 				Timeout:       30,
-				MaxRetries:    3,
 				LoadBalancing: "round_robin",
+				RetryPolicy: config.RetryPolicyConfig{
+					MaxAttempts: 3,
+				},
 			},
 		},
 	}
@@ -97,8 +99,10 @@ func TestGetClient(t *testing.T) {
 		GRPC: config.GRPCConfig{
 			Client: config.GRPCClientConfig{
 				Timeout:       30,
-				MaxRetries:    3,
 				LoadBalancing: "round_robin",
+				RetryPolicy: config.RetryPolicyConfig{
+					MaxAttempts: 3,
+				},
 			},
 		},
 	}
@@ -144,8 +148,10 @@ func TestGetClientNonExistentService(t *testing.T) {
 		GRPC: config.GRPCConfig{
 			Client: config.GRPCClientConfig{
 				Timeout:       1, // 短超时以快速失败
-				MaxRetries:    1,
 				LoadBalancing: "round_robin",
+				RetryPolicy: config.RetryPolicyConfig{
+					MaxAttempts: 1,
+				},
 			},
 		},
 	}
@@ -167,8 +173,10 @@ func TestBuildServiceConfig(t *testing.T) {
 	cfg := &config.Config{
 		GRPC: config.GRPCConfig{
 			Client: config.GRPCClientConfig{
-				MaxRetries:    5,
 				LoadBalancing: "round_robin",
+				RetryPolicy: config.RetryPolicyConfig{
+					MaxAttempts: 5,
+				},
 			},
 		},
 	}
@@ -193,7 +201,13 @@ func TestBuildServiceConfig(t *testing.T) {
 }
 
 func TestBuildInterceptors(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &config.Config{
+		GRPC: config.GRPCConfig{
+			Client: config.GRPCClientConfig{
+				EnableLogging: true,
+			},
+		},
+	}
 	registry := NewMockRegistry()
 	logger := zap.NewNop()
 
@@ -210,8 +224,10 @@ func TestClose(t *testing.T) {
 		GRPC: config.GRPCConfig{
 			Client: config.GRPCClientConfig{
 				Timeout:       30,
-				MaxRetries:    3,
 				LoadBalancing: "round_robin",
+				RetryPolicy: config.RetryPolicyConfig{
+					MaxAttempts: 3,
+				},
 			},
 		},
 	}
@@ -256,8 +272,10 @@ func TestConcurrentGetClient(t *testing.T) {
 		GRPC: config.GRPCConfig{
 			Client: config.GRPCClientConfig{
 				Timeout:       30,
-				MaxRetries:    3,
 				LoadBalancing: "round_robin",
+				RetryPolicy: config.RetryPolicyConfig{
+					MaxAttempts: 3,
+				},
 			},
 		},
 	}
@@ -323,8 +341,10 @@ func BenchmarkGetClient(b *testing.B) {
 		GRPC: config.GRPCConfig{
 			Client: config.GRPCClientConfig{
 				Timeout:       30,
-				MaxRetries:    3,
 				LoadBalancing: "round_robin",
+				RetryPolicy: config.RetryPolicyConfig{
+					MaxAttempts: 3,
+				},
 			},
 		},
 	}

@@ -1,0 +1,52 @@
+# Nginx客户端演示配置
+# 通过省略discovery配置来启用gRPC内置DNS解析器
+
+# 应用配置
+app:
+  name: "nginx-client-demo"
+  version: "1.0.0"
+  env: "development"
+
+# gRPC客户端配置
+grpc:
+  client:
+    # 连接配置
+    timeout: 30                    # 连接超时时间（秒）
+    max_recv_msg_size: 4194304     # 最大接收消息大小（4MB）
+    max_send_msg_size: 4194304     # 最大发送消息大小（4MB）
+    
+    # Keepalive配置
+    keepalive_time: 30             # Keepalive时间（秒）
+    keepalive_timeout: 5           # Keepalive超时（秒）
+    permit_without_stream: true    # 允许无流时发送keepalive
+    
+    # 负载均衡策略
+    load_balancing: "round_robin"  # 负载均衡策略：round_robin, pick_first
+    
+    # 重试策略
+    retry_policy:
+      max_attempts: 3              # 最大重试次数
+      initial_backoff: "1s"        # 初始退避时间
+      max_backoff: "30s"           # 最大退避时间
+      backoff_multiplier: 2.0      # 退避倍数
+      retryable_status_codes:      # 可重试的状态码
+        - "UNAVAILABLE"
+        - "DEADLINE_EXCEEDED"
+        - "RESOURCE_EXHAUSTED"
+    
+    # 压缩配置
+    compression: "gzip"            # 压缩算法：none, gzip
+    
+    # 拦截器配置
+    enable_logging: true           # 启用日志拦截器
+    enable_metrics: true           # 启用指标拦截器
+    enable_tracing: false          # 启用链路追踪拦截器
+
+# 日志配置
+logging:
+  level: "info"                    # 日志级别
+  format: "json"                   # 日志格式：json, text
+  output: "stdout"                 # 输出：stdout, stderr, file
+
+# 注意：没有配置discovery部分，这样会自动使用DNS解析器
+# 客户端将直接连接到指定的Nginx地址

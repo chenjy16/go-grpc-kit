@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/go-grpc-kit/go-grpc-kit/pkg/config"
 	"github.com/go-grpc-kit/go-grpc-kit/pkg/discovery"
@@ -15,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 )
 
@@ -64,8 +66,10 @@ func (m *GrpcServerModule) Initialize(app *GrpcApplication) error {
 	// 注册健康检查服务
 	grpc_health_v1.RegisterHealthServer(m.grpcServer, m.healthSrv)
 
-	// 注册反射服务
-	reflection.Register(m.grpcServer)
+	// 根据配置注册反射服务
+	if m.config.GRPC.Server.EnableReflection {
+		reflection.Register(m.grpcServer)
+	}
 
 	// 注册业务服务
 	for _, service := range app.services {
@@ -145,25 +149,74 @@ func (m *GrpcServerModule) buildServerOptions() []grpc.ServerOption {
 		grpc.MaxSendMsgSize(m.config.GRPC.Server.MaxSendMsgSize),
 	)
 
-	// 添加拦截器链
-	unaryInterceptors := []grpc.UnaryServerInterceptor{
-		interceptor.LoggingUnaryInterceptor(m.logger),
-		interceptor.RecoveryUnaryInterceptor(m.logger),
-		interceptor.MetricsUnaryInterceptor(),
+	// 设置连接配置
+	if m.config.GRPC.Server.MaxConcurrentStreams > 0 {
+		opts = append(opts, grpc.MaxConcurrentStreams(m.config.GRPC.Server.MaxConcurrentStreams))
 	}
 
-	streamInterceptors := []grpc.StreamServerInterceptor{
-		interceptor.LoggingStreamInterceptor(m.logger),
-		interceptor.RecoveryStreamInterceptor(m.logger),
-		interceptor.MetricsStreamInterceptor(),
+	// 设置 Keepalive 配置
+	if m.config.GRPC.Server.KeepaliveTime > 0 {
+		keepaliveParams := keepalive.ServerParameters{
+			Time:    time.Duration(m.config.GRPC.Server.KeepaliveTime) * time.Second,
+			Timeout: time.Duration(m.config.GRPC.Server.KeepaliveTimeout) * time.Second,
+		}
+		opts = append(opts, grpc.KeepaliveParams(keepaliveParams))
 	}
 
-	opts = append(opts,
-		grpc.ChainUnaryInterceptor(unaryInterceptors...),
-		grpc.ChainStreamInterceptor(streamInterceptors...),
-	)
+	if m.config.GRPC.Server.KeepaliveMinTime > 0 {
+		keepalivePolicy := keepalive.EnforcementPolicy{
+			MinTime:             time.Duration(m.config.GRPC.Server.KeepaliveMinTime) * time.Second,
+			PermitWithoutStream: false,
+		}
+		opts = append(opts, grpc.KeepaliveEnforcementPolicy(keepalivePolicy))
+	}
+
+	// 设置连接超时
+	if m.config.GRPC.Server.ConnectionTimeout > 0 {
+		opts = append(opts, grpc.ConnectionTimeout(time.Duration(m.config.GRPC.Server.ConnectionTimeout)*time.Second))
+	}
+
+	// 构建拦截器链
+	unaryInterceptors, streamInterceptors := m.buildInterceptors()
+
+	if len(unaryInterceptors) > 0 {
+		opts = append(opts, grpc.ChainUnaryInterceptor(unaryInterceptors...))
+	}
+	if len(streamInterceptors) > 0 {
+		opts = append(opts, grpc.ChainStreamInterceptor(streamInterceptors...))
+	}
 
 	return opts
+}
+
+// buildInterceptors 构建拦截器链
+func (m *GrpcServerModule) buildInterceptors() ([]grpc.UnaryServerInterceptor, []grpc.StreamServerInterceptor) {
+	var unaryInterceptors []grpc.UnaryServerInterceptor
+	var streamInterceptors []grpc.StreamServerInterceptor
+
+	// 根据配置添加拦截器
+	if m.config.GRPC.Server.EnableLogging {
+		unaryInterceptors = append(unaryInterceptors, interceptor.LoggingUnaryInterceptor(m.logger))
+		streamInterceptors = append(streamInterceptors, interceptor.LoggingStreamInterceptor(m.logger))
+	}
+
+	if m.config.GRPC.Server.EnableRecovery {
+		unaryInterceptors = append(unaryInterceptors, interceptor.RecoveryUnaryInterceptor(m.logger))
+		streamInterceptors = append(streamInterceptors, interceptor.RecoveryStreamInterceptor(m.logger))
+	}
+
+	if m.config.GRPC.Server.EnableMetrics {
+		unaryInterceptors = append(unaryInterceptors, interceptor.MetricsUnaryInterceptor())
+		streamInterceptors = append(streamInterceptors, interceptor.MetricsStreamInterceptor())
+	}
+
+	// TODO: 添加 Tracing 拦截器支持
+	// if m.config.GRPC.Server.EnableTracing {
+	//     unaryInterceptors = append(unaryInterceptors, interceptor.TracingUnaryInterceptor())
+	//     streamInterceptors = append(streamInterceptors, interceptor.TracingStreamInterceptor())
+	// }
+
+	return unaryInterceptors, streamInterceptors
 }
 
 // GetAddress 获取服务器地址

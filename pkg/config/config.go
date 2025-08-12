@@ -34,15 +34,65 @@ type GRPCConfig struct {
 
 // GRPCServerConfig gRPC 服务端配置
 type GRPCServerConfig struct {
+	// 消息大小限制
 	MaxRecvMsgSize int `mapstructure:"max_recv_msg_size" yaml:"max_recv_msg_size"`
 	MaxSendMsgSize int `mapstructure:"max_send_msg_size" yaml:"max_send_msg_size"`
+	
+	// 连接配置
+	MaxConcurrentStreams uint32 `mapstructure:"max_concurrent_streams" yaml:"max_concurrent_streams"`
+	ConnectionTimeout    int    `mapstructure:"connection_timeout" yaml:"connection_timeout"`     // 秒
+	KeepaliveTime        int    `mapstructure:"keepalive_time" yaml:"keepalive_time"`             // 秒
+	KeepaliveTimeout     int    `mapstructure:"keepalive_timeout" yaml:"keepalive_timeout"`       // 秒
+	KeepaliveMinTime     int    `mapstructure:"keepalive_min_time" yaml:"keepalive_min_time"`     // 秒
+	
+	// 安全配置
+	EnableReflection bool `mapstructure:"enable_reflection" yaml:"enable_reflection"`
+	
+	// 压缩配置
+	EnableCompression bool   `mapstructure:"enable_compression" yaml:"enable_compression"`
+	CompressionLevel  string `mapstructure:"compression_level" yaml:"compression_level"` // gzip, deflate
+	
+	// 拦截器配置
+	EnableLogging  bool `mapstructure:"enable_logging" yaml:"enable_logging"`
+	EnableMetrics  bool `mapstructure:"enable_metrics" yaml:"enable_metrics"`
+	EnableRecovery bool `mapstructure:"enable_recovery" yaml:"enable_recovery"`
+	EnableTracing  bool `mapstructure:"enable_tracing" yaml:"enable_tracing"`
 }
 
 // GRPCClientConfig gRPC 客户端配置
 type GRPCClientConfig struct {
+	// 基础配置
 	Timeout        int    `mapstructure:"timeout" yaml:"timeout"`
 	MaxRetries     int    `mapstructure:"max_retries" yaml:"max_retries"`
 	LoadBalancing  string `mapstructure:"load_balancing" yaml:"load_balancing"`
+	
+	// 连接配置
+	MaxRecvMsgSize       int  `mapstructure:"max_recv_msg_size" yaml:"max_recv_msg_size"`
+	MaxSendMsgSize       int  `mapstructure:"max_send_msg_size" yaml:"max_send_msg_size"`
+	KeepaliveTime        int  `mapstructure:"keepalive_time" yaml:"keepalive_time"`         // 秒
+	KeepaliveTimeout     int  `mapstructure:"keepalive_timeout" yaml:"keepalive_timeout"`   // 秒
+	PermitWithoutStream  bool `mapstructure:"permit_without_stream" yaml:"permit_without_stream"`
+	
+	// 重试配置
+	RetryPolicy      RetryPolicyConfig `mapstructure:"retry_policy" yaml:"retry_policy"`
+	
+	// 压缩配置
+	EnableCompression bool   `mapstructure:"enable_compression" yaml:"enable_compression"`
+	CompressionLevel  string `mapstructure:"compression_level" yaml:"compression_level"`
+	
+	// 拦截器配置
+	EnableLogging bool `mapstructure:"enable_logging" yaml:"enable_logging"`
+	EnableMetrics bool `mapstructure:"enable_metrics" yaml:"enable_metrics"`
+	EnableTracing bool `mapstructure:"enable_tracing" yaml:"enable_tracing"`
+}
+
+// RetryPolicyConfig 重试策略配置
+type RetryPolicyConfig struct {
+	MaxAttempts          int      `mapstructure:"max_attempts" yaml:"max_attempts"`
+	InitialBackoff       string   `mapstructure:"initial_backoff" yaml:"initial_backoff"`       // 如 "1s"
+	MaxBackoff           string   `mapstructure:"max_backoff" yaml:"max_backoff"`               // 如 "30s"
+	BackoffMultiplier    float64  `mapstructure:"backoff_multiplier" yaml:"backoff_multiplier"`
+	RetryableStatusCodes []string `mapstructure:"retryable_status_codes" yaml:"retryable_status_codes"`
 }
 
 // DiscoveryConfig 服务发现配置
@@ -131,12 +181,43 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.grpc_port", 9090)
 	v.SetDefault("server.host", "0.0.0.0")
 	
+	// gRPC 服务端默认值
 	v.SetDefault("grpc.server.max_recv_msg_size", 4*1024*1024) // 4MB
 	v.SetDefault("grpc.server.max_send_msg_size", 4*1024*1024) // 4MB
+	v.SetDefault("grpc.server.max_concurrent_streams", 100)
+	v.SetDefault("grpc.server.connection_timeout", 120)
+	v.SetDefault("grpc.server.keepalive_time", 30)
+	v.SetDefault("grpc.server.keepalive_timeout", 5)
+	v.SetDefault("grpc.server.keepalive_min_time", 5)
+	v.SetDefault("grpc.server.enable_reflection", false)
+	v.SetDefault("grpc.server.enable_compression", false)
+	v.SetDefault("grpc.server.compression_level", "gzip")
+	v.SetDefault("grpc.server.enable_logging", true)
+	v.SetDefault("grpc.server.enable_metrics", true)
+	v.SetDefault("grpc.server.enable_recovery", true)
+	v.SetDefault("grpc.server.enable_tracing", false)
 	
+	// gRPC 客户端默认值
 	v.SetDefault("grpc.client.timeout", 30)
 	v.SetDefault("grpc.client.max_retries", 3)
 	v.SetDefault("grpc.client.load_balancing", "round_robin")
+	v.SetDefault("grpc.client.max_recv_msg_size", 4*1024*1024) // 4MB
+	v.SetDefault("grpc.client.max_send_msg_size", 4*1024*1024) // 4MB
+	v.SetDefault("grpc.client.keepalive_time", 30)
+	v.SetDefault("grpc.client.keepalive_timeout", 5)
+	v.SetDefault("grpc.client.permit_without_stream", false)
+	v.SetDefault("grpc.client.enable_compression", false)
+	v.SetDefault("grpc.client.compression_level", "gzip")
+	v.SetDefault("grpc.client.enable_logging", true)
+	v.SetDefault("grpc.client.enable_metrics", true)
+	v.SetDefault("grpc.client.enable_tracing", false)
+	
+	// 重试策略默认值
+	v.SetDefault("grpc.client.retry_policy.max_attempts", 3)
+	v.SetDefault("grpc.client.retry_policy.initial_backoff", "1s")
+	v.SetDefault("grpc.client.retry_policy.max_backoff", "30s")
+	v.SetDefault("grpc.client.retry_policy.backoff_multiplier", 2.0)
+	v.SetDefault("grpc.client.retry_policy.retryable_status_codes", []string{"UNAVAILABLE", "DEADLINE_EXCEEDED"})
 	
 	v.SetDefault("discovery.type", "etcd")
 	v.SetDefault("discovery.endpoints", []string{"localhost:2379"})
@@ -164,12 +245,43 @@ func setDefaultValues(config *Config) {
 	config.Server.GRPCPort = 9090
 	config.Server.Host = "0.0.0.0"
 	
+	// gRPC 服务端默认值
 	config.GRPC.Server.MaxRecvMsgSize = 4 * 1024 * 1024
 	config.GRPC.Server.MaxSendMsgSize = 4 * 1024 * 1024
+	config.GRPC.Server.MaxConcurrentStreams = 100
+	config.GRPC.Server.ConnectionTimeout = 120
+	config.GRPC.Server.KeepaliveTime = 30
+	config.GRPC.Server.KeepaliveTimeout = 5
+	config.GRPC.Server.KeepaliveMinTime = 5
+	config.GRPC.Server.EnableReflection = false
+	config.GRPC.Server.EnableCompression = false
+	config.GRPC.Server.CompressionLevel = "gzip"
+	config.GRPC.Server.EnableLogging = true
+	config.GRPC.Server.EnableMetrics = true
+	config.GRPC.Server.EnableRecovery = true
+	config.GRPC.Server.EnableTracing = false
 	
+	// gRPC 客户端默认值
 	config.GRPC.Client.Timeout = 30
 	config.GRPC.Client.MaxRetries = 3
 	config.GRPC.Client.LoadBalancing = "round_robin"
+	config.GRPC.Client.MaxRecvMsgSize = 4 * 1024 * 1024
+	config.GRPC.Client.MaxSendMsgSize = 4 * 1024 * 1024
+	config.GRPC.Client.KeepaliveTime = 30
+	config.GRPC.Client.KeepaliveTimeout = 5
+	config.GRPC.Client.PermitWithoutStream = false
+	config.GRPC.Client.EnableCompression = false
+	config.GRPC.Client.CompressionLevel = "gzip"
+	config.GRPC.Client.EnableLogging = true
+	config.GRPC.Client.EnableMetrics = true
+	config.GRPC.Client.EnableTracing = false
+	
+	// 重试策略默认值
+	config.GRPC.Client.RetryPolicy.MaxAttempts = 3
+	config.GRPC.Client.RetryPolicy.InitialBackoff = "1s"
+	config.GRPC.Client.RetryPolicy.MaxBackoff = "30s"
+	config.GRPC.Client.RetryPolicy.BackoffMultiplier = 2.0
+	config.GRPC.Client.RetryPolicy.RetryableStatusCodes = []string{"UNAVAILABLE", "DEADLINE_EXCEEDED"}
 	
 	config.Discovery.Type = "etcd"
 	config.Discovery.Endpoints = []string{"localhost:2379"}

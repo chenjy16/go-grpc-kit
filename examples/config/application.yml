@@ -1,0 +1,105 @@
+# gRPC 框架配置示例
+# 展示新增的 gRPC 原生配置选项
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  grpc_port: 9090
+
+grpc:
+  server:
+    # 消息大小限制
+    max_recv_msg_size: 4194304  # 4MB
+    max_send_msg_size: 4194304  # 4MB
+    
+    # 连接配置
+    max_concurrent_streams: 1000
+    connection_timeout: 30  # 秒
+    
+    # Keepalive 配置
+    keepalive_time: 30      # 秒
+    keepalive_timeout: 5    # 秒
+    keepalive_min_time: 5   # 秒
+    
+    # 安全配置
+    enable_reflection: true
+    
+    # 压缩配置
+    enable_compression: true
+    compression_level: 6
+    
+    # 拦截器配置
+    enable_logging: true
+    enable_metrics: true
+    enable_recovery: true
+    enable_tracing: false
+    
+  client:
+    # 消息大小限制
+    max_recv_msg_size: 4194304  # 4MB
+    max_send_msg_size: 4194304  # 4MB
+    
+    # 连接配置
+    connection_timeout: 30  # 秒
+    
+    # Keepalive 配置
+    keepalive_time: 30      # 秒
+    keepalive_timeout: 5    # 秒
+    permit_without_stream: false
+    
+    # 负载均衡配置
+    load_balancing_policy: "round_robin"
+    
+    # 重试策略配置
+    retry_policy:
+      max_attempts: 3
+      initial_backoff: "1s"
+      max_backoff: "10s"
+      backoff_multiplier: 2.0
+      retryable_status_codes: ["UNAVAILABLE", "DEADLINE_EXCEEDED"]
+    
+    # 压缩配置
+    enable_compression: true
+    compression_level: 6
+    
+    # 拦截器配置
+    enable_logging: true
+    enable_metrics: true
+    enable_tracing: false
+
+# 服务发现配置
+discovery:
+  type: "etcd"
+  endpoints:
+    - "localhost:2379"
+  timeout: 5
+
+# 日志配置
+logging:
+  level: "info"
+  format: "json"
+  output: "stdout"
+
+# TLS 配置
+tls:
+  enabled: false
+  cert_file: ""
+  key_file: ""
+  ca_file: ""
+
+# 指标配置
+metrics:
+  enabled: true
+  port: 8081
+  path: "/metrics"
+
+# 自动注册配置
+auto_register:
+  enabled: true
+  scan_dirs:
+    - "./internal/service"
+  patterns:
+    - "*.go"
+  excludes:
+    - "*_test.go"
+  service_name: "example-service"

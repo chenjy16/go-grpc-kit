@@ -3,6 +3,9 @@ package config
 import (
 	"os"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestLoad(t *testing.T) {
@@ -66,4 +69,76 @@ func TestGetEnv(t *testing.T) {
 	if value != "default" {
 		t.Errorf("Expected default, got %s", value)
 	}
+}
+
+func TestDefaultGRPCServerConfig(t *testing.T) {
+	config, err := Load("")
+	assert.NoError(t, err)
+	
+	// 测试默认的服务器配置
+	assert.Equal(t, 4*1024*1024, config.GRPC.Server.MaxRecvMsgSize)
+	assert.Equal(t, 4*1024*1024, config.GRPC.Server.MaxSendMsgSize)
+	assert.Equal(t, uint32(100), config.GRPC.Server.MaxConcurrentStreams)
+	assert.Equal(t, 120, config.GRPC.Server.ConnectionTimeout)
+	assert.Equal(t, 30, config.GRPC.Server.KeepaliveTime)
+	assert.Equal(t, 5, config.GRPC.Server.KeepaliveTimeout)
+	assert.Equal(t, 5, config.GRPC.Server.KeepaliveMinTime)
+	assert.False(t, config.GRPC.Server.EnableReflection)
+	assert.False(t, config.GRPC.Server.EnableCompression)
+	assert.Equal(t, "gzip", config.GRPC.Server.CompressionLevel)
+	assert.True(t, config.GRPC.Server.EnableLogging)
+	assert.True(t, config.GRPC.Server.EnableMetrics)
+	assert.True(t, config.GRPC.Server.EnableRecovery)
+	assert.False(t, config.GRPC.Server.EnableTracing)
+}
+
+func TestDefaultGRPCClientConfig(t *testing.T) {
+	config, err := Load("")
+	assert.NoError(t, err)
+	
+	// 测试默认的客户端配置
+	assert.Equal(t, 4*1024*1024, config.GRPC.Client.MaxRecvMsgSize)
+	assert.Equal(t, 4*1024*1024, config.GRPC.Client.MaxSendMsgSize)
+	assert.Equal(t, 30, config.GRPC.Client.Timeout)
+	assert.Equal(t, 30, config.GRPC.Client.KeepaliveTime)
+	assert.Equal(t, 5, config.GRPC.Client.KeepaliveTimeout)
+	assert.False(t, config.GRPC.Client.PermitWithoutStream)
+	assert.Equal(t, "round_robin", config.GRPC.Client.LoadBalancing)
+	assert.False(t, config.GRPC.Client.EnableCompression)
+	assert.Equal(t, "gzip", config.GRPC.Client.CompressionLevel)
+	assert.True(t, config.GRPC.Client.EnableLogging)
+	assert.True(t, config.GRPC.Client.EnableMetrics)
+	assert.False(t, config.GRPC.Client.EnableTracing)
+}
+
+func TestDefaultRetryPolicyConfig(t *testing.T) {
+	config, err := Load("")
+	assert.NoError(t, err)
+	
+	// 测试默认的重试策略配置
+	retryPolicy := config.GRPC.Client.RetryPolicy
+	assert.Equal(t, 3, retryPolicy.MaxAttempts)
+	assert.Equal(t, "1s", retryPolicy.InitialBackoff)
+	assert.Equal(t, "30s", retryPolicy.MaxBackoff)
+	assert.Equal(t, 2.0, retryPolicy.BackoffMultiplier)
+	assert.Contains(t, retryPolicy.RetryableStatusCodes, "UNAVAILABLE")
+	assert.Contains(t, retryPolicy.RetryableStatusCodes, "DEADLINE_EXCEEDED")
+}
+
+func TestRetryPolicyDurations(t *testing.T) {
+	config, err := Load("")
+	assert.NoError(t, err)
+	retryPolicy := config.GRPC.Client.RetryPolicy
+	
+	// 测试退避时间解析
+	initialBackoff, err := time.ParseDuration(retryPolicy.InitialBackoff)
+	assert.NoError(t, err)
+	assert.Equal(t, time.Second, initialBackoff)
+	
+	maxBackoff, err := time.ParseDuration(retryPolicy.MaxBackoff)
+	assert.NoError(t, err)
+	assert.Equal(t, 30*time.Second, maxBackoff)
+	
+	// 确保最大退避时间大于初始退避时间
+	assert.Greater(t, maxBackoff, initialBackoff)
 }

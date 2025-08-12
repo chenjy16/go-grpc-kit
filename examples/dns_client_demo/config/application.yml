@@ -1,0 +1,50 @@
+# DNS客户端演示配置
+# 注意：这里没有配置discovery部分，所以客户端将使用DNS解析器
+
+server:
+  host: "0.0.0.0"
+  grpcPort: 9090
+
+grpc:
+  server:
+    maxRecvMsgSize: 4194304  # 4MB
+    maxSendMsgSize: 4194304  # 4MB
+    maxConcurrentStreams: 1000
+    keepalive:
+      maxConnectionIdle: 300s
+      maxConnectionAge: 600s
+      maxConnectionAgeGrace: 30s
+      time: 60s
+      timeout: 5s
+    enableReflection: true
+    enableRecovery: true
+    
+  client:
+    timeout: 30
+    loadBalancing: "round_robin"
+    maxRecvMsgSize: 4194304  # 4MB
+    maxSendMsgSize: 4194304  # 4MB
+    keepaliveTime: 30
+    keepaliveTimeout: 5
+    permitWithoutStream: true
+    enableLogging: true
+    enableMetrics: false
+    retryPolicy:
+      maxAttempts: 3
+      initialBackoff: "1s"
+      maxBackoff: "30s"
+      backoffMultiplier: 2.0
+      retryableStatusCodes: ["UNAVAILABLE", "DEADLINE_EXCEEDED"]
+
+logging:
+  level: "info"
+  format: "json"
+
+metrics:
+  enabled: false
+  port: 8081
+  path: "/metrics"
+
+# 注意：没有配置discovery部分，客户端将使用gRPC内置的DNS解析器
+# discovery:
+#   type: ""  # 空字符串表示不使用服务发现

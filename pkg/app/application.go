@@ -10,12 +10,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-grpc-kit/go-grpc-kit/pkg/client"
 	"github.com/go-grpc-kit/go-grpc-kit/pkg/config"
 	"github.com/go-grpc-kit/go-grpc-kit/pkg/discovery"
 	"github.com/go-grpc-kit/go-grpc-kit/pkg/server"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"google.golang.org/grpc"
 )
 
 // Application 应用程序
@@ -25,6 +27,7 @@ type Application struct {
 	grpcServer      *server.Server
 	httpServer      *http.Server
 	serviceManager  *discovery.ServiceManager
+	clientFactory   *client.ClientFactory
 	services        []server.ServiceRegistrar
 	mu              sync.RWMutex
 	shutdownTimeout time.Duration
@@ -92,6 +95,15 @@ func (app *Application) RegisterService(service server.ServiceRegistrar) {
 	app.services = append(app.services, service)
 }
 
+// GetClient 获取gRPC客户端连接
+// serviceName 可以是服务发现中的服务名，也可以是DNS地址（如 "example.com:9090"）
+func (app *Application) GetClient(serviceName string) (*grpc.ClientConn, error) {
+	if app.clientFactory == nil {
+		return nil, fmt.Errorf("client factory not initialized")
+	}
+	return app.clientFactory.GetClient(serviceName)
+}
+
 // Run 运行应用程序
 func (app *Application) Run() error {
 	app.logger.Info("Starting application...")
@@ -115,9 +127,12 @@ func (app *Application) Run() error {
 
 // initialize 初始化组件
 func (app *Application) initialize() error {
+	var registry discovery.Registry
+	
 	// 创建服务发现注册器（如果配置了的话）
 	if app.config.Discovery.Type != "" {
-		registry, err := discovery.NewRegistry(&app.config.Discovery, app.logger)
+		var err error
+		registry, err = discovery.NewRegistry(&app.config.Discovery, app.logger)
 		if err != nil {
 			return fmt.Errorf("failed to create registry: %w", err)
 		}
@@ -125,6 +140,9 @@ func (app *Application) initialize() error {
 		// 创建服务管理器
 		app.serviceManager = discovery.NewServiceManager(registry, app.logger)
 	}
+	
+	// 创建客户端工厂（支持DNS解析器）
+	app.clientFactory = client.NewClientFactory(app.config, registry, app.logger)
 	
 	// 创建 gRPC 服务器
 	app.grpcServer = server.New(app.config, app.logger)
@@ -219,6 +237,17 @@ func (app *Application) shutdown() error {
 			defer wg.Done()
 			if err := app.serviceManager.DeregisterAll(ctx); err != nil {
 				app.logger.Error("Failed to deregister services", zap.Error(err))
+			}
+		}()
+	}
+	
+	// 关闭客户端工厂
+	if app.clientFactory != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := app.clientFactory.Close(); err != nil {
+				app.logger.Error("Failed to close client factory", zap.Error(err))
 			}
 		}()
 	}

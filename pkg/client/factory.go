@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/resolver"
 )
 
@@ -81,14 +82,41 @@ func (f *ClientFactory) createConnection(serviceName string) (*grpc.ClientConn, 
 		grpc.WithDefaultServiceConfig(f.buildServiceConfig()),
 	}
 	
+	// 设置消息大小限制
+	if f.config.GRPC.Client.MaxRecvMsgSize > 0 {
+		opts = append(opts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(f.config.GRPC.Client.MaxRecvMsgSize)))
+	}
+	if f.config.GRPC.Client.MaxSendMsgSize > 0 {
+		opts = append(opts, grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(f.config.GRPC.Client.MaxSendMsgSize)))
+	}
+	
+	// 设置 Keepalive 配置
+	if f.config.GRPC.Client.KeepaliveTime > 0 {
+		keepaliveParams := keepalive.ClientParameters{
+			Time:                time.Duration(f.config.GRPC.Client.KeepaliveTime) * time.Second,
+			Timeout:             time.Duration(f.config.GRPC.Client.KeepaliveTimeout) * time.Second,
+			PermitWithoutStream: f.config.GRPC.Client.PermitWithoutStream,
+		}
+		opts = append(opts, grpc.WithKeepaliveParams(keepaliveParams))
+	}
+	
 	// 添加拦截器
 	opts = append(opts, f.buildInterceptors()...)
 	
-	// 使用服务发现解析器
-	target := fmt.Sprintf("discovery:///%s", serviceName)
-	
-	// 注册自定义解析器
-	f.registerResolver(serviceName)
+	// 确定目标地址
+	var target string
+	if f.registry != nil {
+		// 使用服务发现解析器
+		target = fmt.Sprintf("discovery:///%s", serviceName)
+		// 注册自定义解析器
+		f.registerResolver(serviceName)
+	} else {
+		// 直接使用DNS解析，serviceName应该是host:port格式
+		target = serviceName
+		f.logger.Info("Using DNS resolver for gRPC client",
+			zap.String("service", serviceName),
+			zap.String("target", target))
+	}
 	
 	// 创建连接
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 
@@ -109,37 +137,64 @@ func (f *ClientFactory) createConnection(serviceName string) (*grpc.ClientConn, 
 
 // buildServiceConfig 构建服务配置
 func (f *ClientFactory) buildServiceConfig() string {
+	retryPolicy := f.config.GRPC.Client.RetryPolicy
+	
+	// 构建重试状态码数组
+	statusCodes := "["
+	for i, code := range retryPolicy.RetryableStatusCodes {
+		if i > 0 {
+			statusCodes += ", "
+		}
+		statusCodes += fmt.Sprintf(`"%s"`, code)
+	}
+	statusCodes += "]"
+	
 	return fmt.Sprintf(`{
 		"loadBalancingPolicy": "%s",
 		"retryPolicy": {
 			"maxAttempts": %d,
-			"initialBackoff": "0.1s",
-			"maxBackoff": "1s",
-			"backoffMultiplier": 2,
-			"retryableStatusCodes": ["UNAVAILABLE", "DEADLINE_EXCEEDED"]
+			"initialBackoff": "%s",
+			"maxBackoff": "%s",
+			"backoffMultiplier": %f,
+			"retryableStatusCodes": %s
 		}
-	}`, f.config.GRPC.Client.LoadBalancing, f.config.GRPC.Client.MaxRetries)
+	}`, f.config.GRPC.Client.LoadBalancing, 
+		retryPolicy.MaxAttempts,
+		retryPolicy.InitialBackoff,
+		retryPolicy.MaxBackoff,
+		retryPolicy.BackoffMultiplier,
+		statusCodes)
 }
 
 // buildInterceptors 构建拦截器
 func (f *ClientFactory) buildInterceptors() []grpc.DialOption {
 	var opts []grpc.DialOption
+	var unaryInterceptors []grpc.UnaryClientInterceptor
+	var streamInterceptors []grpc.StreamClientInterceptor
 	
-	// 添加客户端拦截器
-	unaryInterceptors := []grpc.UnaryClientInterceptor{
-		f.loggingUnaryInterceptor(),
-		f.metricsUnaryInterceptor(),
+	// 根据配置添加拦截器
+	if f.config.GRPC.Client.EnableLogging {
+		unaryInterceptors = append(unaryInterceptors, f.loggingUnaryInterceptor())
+		streamInterceptors = append(streamInterceptors, f.loggingStreamInterceptor())
 	}
 	
-	streamInterceptors := []grpc.StreamClientInterceptor{
-		f.loggingStreamInterceptor(),
-		f.metricsStreamInterceptor(),
+	if f.config.GRPC.Client.EnableMetrics {
+		unaryInterceptors = append(unaryInterceptors, f.metricsUnaryInterceptor())
+		streamInterceptors = append(streamInterceptors, f.metricsStreamInterceptor())
 	}
 	
-	opts = append(opts,
-		grpc.WithChainUnaryInterceptor(unaryInterceptors...),
-		grpc.WithChainStreamInterceptor(streamInterceptors...),
-	)
+	// TODO: 添加 tracing 拦截器支持
+	// if f.config.GRPC.Client.EnableTracing {
+	//     unaryInterceptors = append(unaryInterceptors, f.tracingUnaryInterceptor())
+	//     streamInterceptors = append(streamInterceptors, f.tracingStreamInterceptor())
+	// }
+	
+	if len(unaryInterceptors) > 0 {
+		opts = append(opts, grpc.WithChainUnaryInterceptor(unaryInterceptors...))
+	}
+	if len(streamInterceptors) > 0 {
+		opts = append(opts, grpc.WithChainStreamInterceptor(streamInterceptors...))
+	}
 	
 	return opts
 }

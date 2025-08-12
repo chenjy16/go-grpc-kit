@@ -1,0 +1,80 @@
+# gRPC配置演示
+server:
+  host: "0.0.0.0"
+  port: 8080
+  grpc_port: 9090
+
+grpc:
+  server:
+    # 消息大小限制
+    max_recv_msg_size: 8388608  # 8MB
+    max_send_msg_size: 8388608  # 8MB
+    
+    # 连接配置
+    max_concurrent_streams: 200
+    connection_timeout: 180     # 3分钟
+    keepalive_time: 60         # 1分钟
+    keepalive_timeout: 10      # 10秒
+    keepalive_min_time: 10     # 10秒
+    
+    # 功能开关
+    enable_reflection: true
+    enable_compression: true
+    compression_level: "gzip"
+    
+    # 拦截器配置
+    enable_logging: true
+    enable_metrics: true
+    enable_recovery: true
+    enable_tracing: false
+
+  client:
+    # 基础配置
+    timeout: 60                # 1分钟
+    load_balancing: "round_robin"
+    
+    # 消息大小限制
+    max_recv_msg_size: 8388608  # 8MB
+    max_send_msg_size: 8388608  # 8MB
+    
+    # Keepalive配置
+    keepalive_time: 30         # 30秒
+    keepalive_timeout: 5       # 5秒
+    permit_without_stream: true
+    
+    # 压缩配置
+    enable_compression: true
+    compression_level: "gzip"
+    
+    # 拦截器配置
+    enable_logging: true
+    enable_metrics: true
+    enable_tracing: false
+    
+    # 重试策略
+    retry_policy:
+      max_attempts: 5
+      initial_backoff: "1s"
+      max_backoff: "60s"
+      backoff_multiplier: 2.0
+      retryable_status_codes:
+        - "UNAVAILABLE"
+        - "DEADLINE_EXCEEDED"
+        - "RESOURCE_EXHAUSTED"
+
+# 日志配置
+logging:
+  level: "info"
+  format: "json"
+
+# 指标配置
+metrics:
+  enabled: true
+  port: 8081
+  path: "/metrics"
+
+# 服务发现配置（可选）
+discovery:
+  type: ""  # 留空表示不使用服务发现
+  endpoints: []
+  namespace: "default"
