@@ -117,6 +117,11 @@ func (app *GrpcApplication) autoRegisterModules() {
 	if app.config.Discovery.Type != "" {
 		app.RegisterModule(NewDiscoveryModule(app.config, app.logger, "grpc-service"))
 	}
+
+	// 注册自动注册模块
+	if app.config.AutoRegister.Enabled {
+		app.RegisterModule(NewAutoRegisterModule(app.config, app.logger))
+	}
 }
 
 // initializeModules 初始化模块

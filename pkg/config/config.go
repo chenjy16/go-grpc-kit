@@ -10,12 +10,13 @@ import (
 
 // Config 应用配置结构
 type Config struct {
-	Server    ServerConfig    `mapstructure:"server" yaml:"server"`
-	GRPC      GRPCConfig      `mapstructure:"grpc" yaml:"grpc"`
-	Discovery DiscoveryConfig `mapstructure:"discovery" yaml:"discovery"`
-	Logging   LoggingConfig   `mapstructure:"logging" yaml:"logging"`
-	TLS       TLSConfig       `mapstructure:"tls" yaml:"tls"`
-	Metrics   MetricsConfig   `mapstructure:"metrics" yaml:"metrics"`
+	Server       ServerConfig       `mapstructure:"server" yaml:"server"`
+	GRPC         GRPCConfig         `mapstructure:"grpc" yaml:"grpc"`
+	Discovery    DiscoveryConfig    `mapstructure:"discovery" yaml:"discovery"`
+	Logging      LoggingConfig      `mapstructure:"logging" yaml:"logging"`
+	TLS          TLSConfig          `mapstructure:"tls" yaml:"tls"`
+	Metrics      MetricsConfig      `mapstructure:"metrics" yaml:"metrics"`
+	AutoRegister AutoRegisterConfig `mapstructure:"auto_register" yaml:"auto_register"`
 }
 
 // ServerConfig 服务器配置
@@ -149,6 +150,12 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("metrics.enabled", true)
 	v.SetDefault("metrics.port", 8081)
 	v.SetDefault("metrics.path", "/metrics")
+	
+	v.SetDefault("auto_register.enabled", false)
+	v.SetDefault("auto_register.scan_dirs", []string{"./pkg/services", "./internal/services"})
+	v.SetDefault("auto_register.patterns", []string{"*.go"})
+	v.SetDefault("auto_register.excludes", []string{"*_test.go", "*_mock.go"})
+	v.SetDefault("auto_register.service_name", "")
 }
 
 // setDefaultValues 设置结构体默认值
@@ -176,6 +183,12 @@ func setDefaultValues(config *Config) {
 	config.Metrics.Enabled = true
 	config.Metrics.Port = 8081
 	config.Metrics.Path = "/metrics"
+	
+	config.AutoRegister.Enabled = false
+	config.AutoRegister.ScanDirs = []string{"./pkg/services", "./internal/services"}
+	config.AutoRegister.Patterns = []string{"*.go"}
+	config.AutoRegister.Excludes = []string{"*_test.go", "*_mock.go"}
+	config.AutoRegister.ServiceName = ""
 }
 
 // GetEnv 获取环境变量，如果不存在则返回默认值

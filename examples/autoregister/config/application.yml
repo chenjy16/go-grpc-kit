@@ -13,20 +13,17 @@ grpc:
     load_balancing: "round_robin"
 
 discovery:
-  type: "etcd"  # etcd 或 consul
+  type: "etcd"
   endpoints:
     - "localhost:2379"
   namespace: "/grpc-kit"
 
 logging:
-  level: "info"  # debug, info, warn, error
-  format: "json"  # json 或 console
+  level: "info"
+  format: "json"
 
 tls:
   enabled: false
-  cert_file: ""
-  key_file: ""
-  ca_file: ""
 
 metrics:
   enabled: true
@@ -35,10 +32,9 @@ metrics:
 
 # 自动注册配置
 auto_register:
-  enabled: false                    # 是否启用自动注册
+  enabled: true                     # 启用自动注册
   scan_dirs:                       # 扫描目录列表
-    - "./pkg/services"
-    - "./internal/services"
+    - "./services"
   patterns:                        # 文件匹配模式
     - "*.go"
   excludes:                        # 排除模式
