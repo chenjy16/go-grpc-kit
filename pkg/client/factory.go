@@ -1,0 +1,232 @@
+package client
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/go-grpc-kit/go-grpc-kit/pkg/config"
+	"github.com/go-grpc-kit/go-grpc-kit/pkg/discovery"
+	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/resolver"
+)
+
+// ClientFactory gRPC 客户端工厂
+type ClientFactory struct {
+	config    *config.Config
+	logger    *zap.Logger
+	registry  discovery.Registry
+	clients   map[string]*grpc.ClientConn
+	mu        sync.RWMutex
+}
+
+// NewClientFactory 创建客户端工厂
+func NewClientFactory(cfg *config.Config, registry discovery.Registry, logger *zap.Logger) *ClientFactory {
+	return &ClientFactory{
+		config:   cfg,
+		logger:   logger,
+		registry: registry,
+		clients:  make(map[string]*grpc.ClientConn),
+	}
+}
+
+// GetClient 获取客户端连接
+func (f *ClientFactory) GetClient(serviceName string) (*grpc.ClientConn, error) {
+	f.mu.RLock()
+	if conn, exists := f.clients[serviceName]; exists {
+		f.mu.RUnlock()
+		return conn, nil
+	}
+	f.mu.RUnlock()
+	
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	
+	// 双重检查
+	if conn, exists := f.clients[serviceName]; exists {
+		return conn, nil
+	}
+	
+	// 创建新连接
+	conn, err := f.createConnection(serviceName)
+	if err != nil {
+		return nil, err
+	}
+	
+	f.clients[serviceName] = conn
+	return conn, nil
+}
+
+// createConnection 创建连接
+func (f *ClientFactory) createConnection(serviceName string) (*grpc.ClientConn, error) {
+	// 首先检查服务是否存在
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	
+	services, err := f.registry.Discover(ctx, serviceName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover service %s: %w", serviceName, err)
+	}
+	
+	if len(services) == 0 {
+		return nil, fmt.Errorf("service %s not found", serviceName)
+	}
+	
+	// 构建连接选项
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultServiceConfig(f.buildServiceConfig()),
+	}
+	
+	// 添加拦截器
+	opts = append(opts, f.buildInterceptors()...)
+	
+	// 使用服务发现解析器
+	target := fmt.Sprintf("discovery:///%s", serviceName)
+	
+	// 注册自定义解析器
+	f.registerResolver(serviceName)
+	
+	// 创建连接
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 
+		time.Duration(f.config.GRPC.Client.Timeout)*time.Second)
+	defer cancel2()
+	
+	conn, err := grpc.DialContext(ctx2, target, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dial %s: %w", serviceName, err)
+	}
+	
+	f.logger.Info("Created gRPC client connection",
+		zap.String("service", serviceName),
+		zap.String("target", target))
+	
+	return conn, nil
+}
+
+// buildServiceConfig 构建服务配置
+func (f *ClientFactory) buildServiceConfig() string {
+	return fmt.Sprintf(`{
+		"loadBalancingPolicy": "%s",
+		"retryPolicy": {
+			"maxAttempts": %d,
+			"initialBackoff": "0.1s",
+			"maxBackoff": "1s",
+			"backoffMultiplier": 2,
+			"retryableStatusCodes": ["UNAVAILABLE", "DEADLINE_EXCEEDED"]
+		}
+	}`, f.config.GRPC.Client.LoadBalancing, f.config.GRPC.Client.MaxRetries)
+}
+
+// buildInterceptors 构建拦截器
+func (f *ClientFactory) buildInterceptors() []grpc.DialOption {
+	var opts []grpc.DialOption
+	
+	// 添加客户端拦截器
+	unaryInterceptors := []grpc.UnaryClientInterceptor{
+		f.loggingUnaryInterceptor(),
+		f.metricsUnaryInterceptor(),
+	}
+	
+	streamInterceptors := []grpc.StreamClientInterceptor{
+		f.loggingStreamInterceptor(),
+		f.metricsStreamInterceptor(),
+	}
+	
+	opts = append(opts,
+		grpc.WithChainUnaryInterceptor(unaryInterceptors...),
+		grpc.WithChainStreamInterceptor(streamInterceptors...),
+	)
+	
+	return opts
+}
+
+// registerResolver 注册自定义解析器
+func (f *ClientFactory) registerResolver(serviceName string) {
+	builder := &discoveryResolverBuilder{
+		serviceName: serviceName,
+		registry:    f.registry,
+		logger:      f.logger,
+	}
+	resolver.Register(builder)
+}
+
+// Close 关闭所有客户端连接
+func (f *ClientFactory) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	
+	for serviceName, conn := range f.clients {
+		if err := conn.Close(); err != nil {
+			f.logger.Error("Failed to close client connection",
+				zap.String("service", serviceName),
+				zap.Error(err))
+		}
+	}
+	
+	f.clients = make(map[string]*grpc.ClientConn)
+	return nil
+}
+
+// loggingUnaryInterceptor 客户端一元调用日志拦截器
+func (f *ClientFactory) loggingUnaryInterceptor() grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		start := time.Now()
+		err := invoker(ctx, method, req, reply, cc, opts...)
+		duration := time.Since(start)
+		
+		if err != nil {
+			f.logger.Error("gRPC client call failed",
+				zap.String("method", method),
+				zap.Duration("duration", duration),
+				zap.Error(err))
+		} else {
+			f.logger.Debug("gRPC client call completed",
+				zap.String("method", method),
+				zap.Duration("duration", duration))
+		}
+		
+		return err
+	}
+}
+
+// loggingStreamInterceptor 客户端流式调用日志拦截器
+func (f *ClientFactory) loggingStreamInterceptor() grpc.StreamClientInterceptor {
+	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+		start := time.Now()
+		stream, err := streamer(ctx, desc, cc, method, opts...)
+		duration := time.Since(start)
+		
+		if err != nil {
+			f.logger.Error("gRPC client stream failed",
+				zap.String("method", method),
+				zap.Duration("duration", duration),
+				zap.Error(err))
+		} else {
+			f.logger.Debug("gRPC client stream created",
+				zap.String("method", method),
+				zap.Duration("duration", duration))
+		}
+		
+		return stream, err
+	}
+}
+
+// metricsUnaryInterceptor 客户端一元调用指标拦截器
+func (f *ClientFactory) metricsUnaryInterceptor() grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		// TODO: 实现客户端指标收集
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}
+}
+
+// metricsStreamInterceptor 客户端流式调用指标拦截器
+func (f *ClientFactory) metricsStreamInterceptor() grpc.StreamClientInterceptor {
+	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+		// TODO: 实现客户端指标收集
+		return streamer(ctx, desc, cc, method, opts...)
+	}
+}

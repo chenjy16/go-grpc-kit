@@ -1,0 +1,34 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  grpc_port: 9090
+
+grpc:
+  server:
+    max_recv_msg_size: 4194304  # 4MB
+    max_send_msg_size: 4194304  # 4MB
+  client:
+    timeout: 30
+    max_retries: 3
+    load_balancing: "round_robin"
+
+discovery:
+  type: "etcd"  # etcd 或 consul
+  endpoints:
+    - "localhost:2379"
+  namespace: "/grpc-kit"
+
+logging:
+  level: "info"  # debug, info, warn, error
+  format: "json"  # json 或 console
+
+tls:
+  enabled: false
+  cert_file: ""
+  key_file: ""
+  ca_file: ""
+
+metrics:
+  enabled: true
+  port: 8081
+  path: "/metrics"
